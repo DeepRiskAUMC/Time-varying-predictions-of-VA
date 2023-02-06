@@ -1,0 +1,117 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+import pandas as pd
+import numpy as np
+INTERVAL_LENGTH = 60
+N_INTERVALS = 40
+
+def get_days_until_ecg(df, df_time_varying_feat, study_date, implant_date, index_col):
+    
+    data = pd.merge(df_time_varying_feat, df[[index_col, implant_date]], on = index_col)
+    
+    #data[study_date] = pd.to_datetime(data[study_date], format='%Y%m%d')
+    data[study_date] = pd.to_datetime(data[study_date], format='%m-%d-%Y')
+    data[study_date] = pd.to_datetime(data[study_date].dt.strftime('%m/%d/%Y'))
+    data[implant_date] = pd.to_datetime(data[implant_date], format='%Y-%m-%d')
+    data[implant_date] = pd.to_datetime(data[implant_date].dt.strftime('%m/%d/%Y'))
+    
+    #calculate days until ECG
+    data['DaysUntilECG'] = (data[study_date] - data[implant_date]).dt.days
+    #set to 0 if made up to 1y before implementation (such that we do not lose this data)
+    
+    data['DaysUntilECG'] = [1 if x > -365 & x < 1 else x for x in data['DaysUntilECG']]
+    
+    return data
+
+def get_event_interval(event_day):
+    
+    for i in range(N_INTERVALS):
+        if event_day < INTERVAL_LENGTH * (i+1) and event_day >= INTERVAL_LENGTH * i:
+            return i + 1
+        else:
+            continue
+    return np.nan
+
+    
+def get_duplicates(event_col):
+    #we add rows only until the interval with censoring or an event
+    #get interval of event
+    n_reps = get_event_interval(event_col)
+    
+    if np.isnan(n_reps):
+        #we still add a row if the data does not fall within an interval
+        print("!!! out of interval !!!", event_col)
+        return 1
+    
+    return n_reps 
+
+def add_interval_number(df, index_col):
+    
+    df['Interval'] = df.groupby([df[index_col]]).cumcount() + 1
+    return df
+
+    
+def get_cpiu(cpiu_df, df_time_varying_feat, index_col):
+
+    #add ECG features if both interval and patientID match
+    #however, if none match, keep the row from cpiu_df! (such that all patients have
+    #the same number of rows)
+    #the empty rows are forward filled later
+
+    df = pd.merge(cpiu_df, df_time_varying_feat, on=[index_col, 'Interval'], how="left")
+
+    #take last value (last ECG) if there are multiple ECGs for the same patients in the same interval
+    df = df.groupby([index_col, 'Interval']).tail(1)
+    
+    return df 
+
+
+def get_event_per_cpiu(event_day, ecg_day, interval, event):
+    
+    #check whether there is an event and whether the event falls in the current time interval
+    if get_event_interval(event_day) == interval and event == 1:
+        return 1
+    return 0
+
+def get_event_time_per_cpiu(event_day, event, interval):
+    
+    event_interval = get_event_interval(event_day)
+    if event_interval == interval and event == 1:
+        return event_day / event_interval
+    return INTERVAL_LENGTH
+
+def correct_event_per_cpiu(cpiu_df, event_col):
+
+    cpiu_df['EventDuringCPIU'] = cpiu_df.apply(lambda row: get_event_per_cpiu(row[event_col], row['DaysUntilECG'], row["Interval"], row["Event"]), axis = 1)
+    return cpiu_df
+
+def correct_event_time_per_cpiu(df, event_col, event_indicator):
+    
+    df['EventTimeDuringCPIU'] = df.apply(lambda row: get_event_time_per_cpiu(row[event_col], row[event_indicator], row["Interval"]), axis = 1)
+    return df
+
+def cumulative_event_count(df, index_col):
+    df['CumcountEvent'] = df.groupby(index_col)['EventDuringCPIU'].cumsum()
+    return df
+
+def delete_intervals_after_censoring(df, event_col):
+    #not necessary anymore -- see get_duplicates
+    df = df[df['DaysUntilECG'] <= df[event_col]]
+    return df
+
+def create_cpiu(df, index_col, event_col, event_indicator, study_date, implant_date, df_time_varying_feat, N_INTERVALS, INTERVAL_LENGTH):
+    df_time_varying_feat = get_days_until_ecg(df, df_time_varying_feat, study_date, implant_date, index_col)
+    display(df_time_varying_feat.head(10))
+    df_time_varying_feat['Interval'] = df_time_varying_feat.apply(lambda row: get_event_interval(row['DaysUntilECG']), axis = 1)
+    df['Reps'] = df.apply(lambda row: get_duplicates(row[event_col]), axis = 1)
+    df = df.reindex(df.index.repeat(df['Reps']))
+    df = add_interval_number(df, index_col)
+    df = get_cpiu(df, df_time_varying_feat, index_col)
+    df = correct_event_per_cpiu(df, event_col)
+    df = correct_event_time_per_cpiu(df, event_col, event_indicator)
+    df = cumulative_event_count(df, index_col)    
+    return df
+
