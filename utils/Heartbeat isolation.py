@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import biosppy.signals.ecg
 import neurokit2 as nk
-log = pd.read_csv(r'\\amc.intra\data\group\diva\EP-research\Maarten Fleur\ECG features_for_manuscript\DISTANT\ECG\log_bothsets_ID.csv', index_col=[0])
-ecg = np.load(r'\\amc.intra\data\group\diva\EP-research\Maarten Fleur\ECG features_for_manuscript\DISTANT\ECG\both_sets_ECG_sel_06022023.npy')
+log = pd.read_csv(path_log)
+ecg = np.load(path_np)
 
 df = ecg
 heartbeats_all = np.empty((0, 251))
