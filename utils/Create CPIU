@@ -22,7 +22,7 @@ def get_days_until_ecg(df, df_time_varying_feat, study_date, implant_date, index
     data['DaysUntilECG'] = (data[study_date] - data[implant_date]).dt.days
     #set to 0 if made up to 1y before implementation (such that we do not lose this data)
     
-    data['DaysUntilECG'] = [1 if x > -365 & x < 1 else x for x in data['DaysUntilECG']]
+    data['DaysUntilECG'] = [1 if x > -356 & x < 1 else x for x in data['DaysUntilECG']]
     
     return data
 
